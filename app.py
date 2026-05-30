@@ -2,14 +2,15 @@ import os
 from flask import Flask, request
 
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import TextSendMessage
+from linebot.models import TextSendMessage, TextMessage
+from linebot.models.events import MessageEvent
 from linebot.exceptions import InvalidSignatureError
 
 import google.generativeai as genai
 
 # ตั้งค่า Gemini API Key จาก Environment Variable
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model_name = os.getenv("MODEL", "gemini-2.5-flash")
+MODEL = os.getenv("MODEL", "gemini-2.5-flash")
 
 app = Flask(__name__)
 
@@ -37,32 +38,21 @@ def callback():
 
     return "OK"
 
-from linebot.models.events import MessageEvent
-from linebot.models import TextMessage
-
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_text = event.message.text
 
-    # เรียก Gemini API แทน OpenAI
-    response = genai.chat(
-        model=model_name,
-        messages=[
-            {"role": "user", "content": user_text}
-        ]
-    )
-
-    reply_text = response.last.message.content[0].text
+    try:
+        model = genai.GenerativeModel(MODEL)
+        response = model.generate_content(user_text)
+        reply_text = response.text
+    except Exception as e:
+        reply_text = f"เกิดข้อผิดพลาด: {str(e)}"
 
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(
-            text=reply_text
-        )
+        TextSendMessage(text=reply_text)
     )
 
 if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 5000))
-    )
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
