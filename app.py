@@ -1,4 +1,5 @@
 import os
+import requests
 from flask import Flask, request
 
 from linebot import LineBotApi, WebhookHandler
@@ -10,6 +11,7 @@ import google.generativeai as genai
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 MODEL = os.getenv("MODEL", "gemini-2.5-flash")
+THAIWATER_API_URL = os.getenv("THAIWATER_API_URL", "")
 
 app = Flask(__name__)
 
@@ -20,7 +22,7 @@ user_locations = {}
 
 @app.route("/")
 def home():
-    return "FLOODCARE AI 3.0 is running"
+    return "FLOODCARE AI 3.1 Realtime is running"
 
 @app.route("/callback", methods=["POST"])
 def callback():
@@ -35,7 +37,7 @@ def callback():
     return "OK"
 
 def menu():
-    return """🌊 FLOODCARE AI 3.0
+    return """🌊 FLOODCARE AI 3.1
 
 พิมพ์หมายเลขที่ต้องการ
 
@@ -45,29 +47,73 @@ def menu():
 4️⃣ เบอร์ฉุกเฉิน
 5️⃣ ปฐมพยาบาล
 6️⃣ ศูนย์พักพิง
-7️⃣ ตรวจสอบระดับน้ำ
+7️⃣ ตรวจสอบระดับน้ำเรียลไทม์
 8️⃣ SOS ขอความช่วยเหลือ
 9️⃣ ถาม AI เรื่องน้ำท่วม
 
 พิมพ์: เมนู"""
 
+def realtime_water_level():
+    if not THAIWATER_API_URL:
+        return """📊 ตรวจสอบระดับน้ำเรียลไทม์
+
+ขณะนี้ยังไม่ได้ตั้งค่า THAIWATER_API_URL ใน Render
+
+แหล่งข้อมูลจริงที่ใช้ตรวจสอบ:
+1. ThaiWater API
+2. กรมชลประทาน Real time Hydro Data
+3. ปภ. โทร 1784
+4. เทศบาล / อบต. ในพื้นที่
+
+สถานะระบบ:
+🟡 พร้อมเชื่อม API จริง
+กรุณาเพิ่ม THAIWATER_API_URL ใน Environment Variables"""
+
+    try:
+        response = requests.get(THAIWATER_API_URL, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        text = f"""📊 ข้อมูลระดับน้ำเรียลไทม์
+
+แหล่งข้อมูล: ThaiWater / RID API
+สถานะ: ดึงข้อมูลสำเร็จ
+
+ข้อมูลล่าสุด:
+{str(data)[:3500]}
+
+คำแนะนำ:
+หากระดับน้ำเพิ่มเร็ว ให้ย้ายของขึ้นที่สูงและเตรียมอพยพทันที"""
+
+        return text[:4500]
+
+    except Exception as e:
+        print("REALTIME WATER ERROR:", str(e))
+        return """❌ ไม่สามารถดึงข้อมูลระดับน้ำเรียลไทม์ได้ในขณะนี้
+
+คำแนะนำ:
+1. ตรวจสอบ THAIWATER_API_URL ใน Render
+2. ตรวจสอบว่า API เปิดใช้งานอยู่หรือไม่
+3. ติดต่อ ปภ. โทร 1784
+4. ติดตามประกาศจากหน่วยงานท้องถิ่น"""
+
 def ask_ai(user_text):
     model = genai.GenerativeModel(MODEL)
 
     prompt = f"""
-คุณคือ FLOODCARE AI 3.0
+คุณคือ FLOODCARE AI 3.1
 ผู้ช่วยอัจฉริยะด้านน้ำท่วม อุทกภัย การอพยพ และการช่วยเหลือฉุกเฉิน
 
 ตอบเป็นภาษาไทย
 ใช้ภาษาง่าย
 ตอบเป็นข้อ ๆ
 เน้นความปลอดภัย
+ห้ามแต่งข้อมูลระดับน้ำจริง
 ถ้าเป็นเหตุฉุกเฉิน ให้แนะนำโทร 191, 1669 หรือ 1784
 
 คำถาม:
 {user_text}
 """
-
     response = model.generate_content(prompt)
     return (response.text or "ขออภัย ระบบไม่สามารถสร้างคำตอบได้")[:4500]
 
@@ -147,20 +193,10 @@ def handle_message(event):
 1. อบต. หรือเทศบาล
 2. ผู้ใหญ่บ้าน / กำนัน
 3. ปภ. โทร 1784
-4. วัด โรงเรียน หรือศาลาประชาคมใกล้บ้าน
+4. วัด โรงเรียน หรือศาลาประชาคมใกล้บ้าน"""
 
-ควรนำบัตรประชาชน ยาประจำตัว และของใช้จำเป็นติดตัวไป"""
-
-            elif user_text == "7":
-                reply_text = """📊 ตรวจสอบระดับน้ำ
-
-ระบบต้นแบบยังไม่ได้เชื่อมข้อมูลระดับน้ำจริง
-
-แนะนำให้ตรวจสอบจาก:
-1. ปภ. โทร 1784
-2. กรมอุตุนิยมวิทยา
-3. เทศบาล / อบต.
-4. ประกาศจากเจ้าหน้าที่ในพื้นที่"""
+            elif user_text in ["7", "ระดับน้ำ", "ตรวจสอบระดับน้ำ", "เรียลไทม์"]:
+                reply_text = realtime_water_level()
 
             elif user_text == "8" or user_text.upper().startswith("SOS"):
                 loc = user_locations.get(event.source.user_id)
