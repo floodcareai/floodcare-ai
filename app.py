@@ -8,19 +8,13 @@ from linebot.exceptions import InvalidSignatureError
 
 import google.generativeai as genai
 
-# ตั้งค่า Gemini API Key จาก Environment Variable
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 MODEL = os.getenv("MODEL", "gemini-2.5-flash")
 
 app = Flask(__name__)
 
-line_bot_api = LineBotApi(
-    os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-)
-
-handler = WebhookHandler(
-    os.getenv("LINE_CHANNEL_SECRET")
-)
+line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
+handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
 
 @app.route("/")
 def home():
@@ -45,9 +39,13 @@ def handle_message(event):
     try:
         model = genai.GenerativeModel(MODEL)
         response = model.generate_content(user_text)
-        reply_text = response.text
+
+        reply_text = response.text or "ขออภัย ระบบไม่สามารถสร้างคำตอบได้"
+        reply_text = reply_text[:4500]
+
     except Exception as e:
-        reply_text = f"เกิดข้อผิดพลาด: {str(e)}"
+        print("GEMINI ERROR:", str(e))
+        reply_text = "ขออภัย ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง"
 
     line_bot_api.reply_message(
         event.reply_token,
