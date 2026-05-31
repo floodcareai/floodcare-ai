@@ -145,17 +145,17 @@ def ask_ai(user_text):
         response = model.generate_content(prompt)
 
         if not response:
-            return "ERROR: Gemini ไม่ส่ง response กลับมา"
+            return "ขออภัย ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง"
 
         if not hasattr(response, "text") or not response.text:
-            return "ERROR: Gemini ตอบกลับมาแต่ว่างเปล่า"
+           return "ขออภัย ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง"
 
         return cut_text(response.text)
 
     except Exception as e:
         print("GEMINI ERROR:", str(e))
         traceback.print_exc()
-        return f"ERROR GEMINI: {str(e)}"
+        return "ขออภัย ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง"
 
 
 @handler.add(MessageEvent, message=LocationMessageContent)
