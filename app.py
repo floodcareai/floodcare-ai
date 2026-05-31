@@ -1,4 +1,5 @@
 import os
+import traceback
 from flask import Flask, request
 
 import google.generativeai as genai
@@ -14,25 +15,49 @@ from linebot.v3.messaging import (
     TextMessage
 )
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-MODEL = os.getenv("MODEL", "gemini-2.5-flash")
-
 app = Flask(__name__)
 
-configuration = Configuration(
-    access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
+MODEL = os.getenv("MODEL", "gemini-1.5-flash")
 
-handler = WebhookHandler(
-    os.getenv("LINE_CHANNEL_SECRET")
-)
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+
+configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 user_locations = {}
 
 
 @app.route("/")
 def home():
-    return "FLOODCARE AI 3.1 is running"
+    return "FLOODCARE AI is running"
+
+
+@app.route("/health")
+def health():
+    missing = []
+
+    if not GEMINI_API_KEY:
+        missing.append("GEMINI_API_KEY")
+    if not LINE_CHANNEL_ACCESS_TOKEN:
+        missing.append("LINE_CHANNEL_ACCESS_TOKEN")
+    if not LINE_CHANNEL_SECRET:
+        missing.append("LINE_CHANNEL_SECRET")
+
+    if missing:
+        return {
+            "status": "error",
+            "missing": missing,
+            "model": MODEL
+        }, 500
+
+    return {
+        "status": "ok",
+        "model": MODEL
+    }
 
 
 @app.route("/callback", methods=["POST"])
@@ -43,26 +68,41 @@ def callback():
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
+        print("Invalid LINE signature")
         return "Invalid signature", 400
+    except Exception as e:
+        print("CALLBACK ERROR:", str(e))
+        traceback.print_exc()
+        return "Callback error", 500
 
     return "OK"
 
 
-def send_reply(reply_token, text):
-    text = (text or "ขออภัย ระบบไม่สามารถสร้างคำตอบได้")[:4500]
+def cut_text(text, limit=4500):
+    text = text or "ขออภัย ระบบไม่สามารถสร้างคำตอบได้"
+    return text[:limit]
 
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        line_bot_api.reply_message(
-            ReplyMessageRequest(
-                reply_token=reply_token,
-                messages=[TextMessage(text=text)]
+
+def send_reply(reply_token, text):
+    try:
+        text = cut_text(text)
+
+        with ApiClient(configuration) as api_client:
+            line_bot_api = MessagingApi(api_client)
+            line_bot_api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text=text)]
+                )
             )
-        )
+
+    except Exception as e:
+        print("SEND REPLY ERROR:", str(e))
+        traceback.print_exc()
 
 
 def menu():
-    return """🌊 FLOODCARE AI 3.1
+    return """🌊 FLOODCARE AI
 
 พิมพ์หมายเลขที่ต้องการ
 
@@ -80,40 +120,64 @@ def menu():
 
 
 def ask_ai(user_text):
-    model = genai.GenerativeModel(MODEL)
+    if not GEMINI_API_KEY:
+        return "ERROR: ยังไม่ได้ตั้งค่า GEMINI_API_KEY ใน Render"
 
-    prompt = f"""
-คุณคือ FLOODCARE AI 3.1
+    try:
+        model = genai.GenerativeModel(MODEL)
+
+        prompt = f"""
+คุณคือ FLOODCARE AI
 ผู้ช่วยอัจฉริยะด้านน้ำท่วม อุทกภัย การอพยพ และการช่วยเหลือฉุกเฉิน
 
-ตอบเป็นภาษาไทย
-ใช้ภาษาง่าย
-ตอบเป็นข้อ ๆ
-เน้นความปลอดภัย
-ถ้าเป็นเหตุฉุกเฉิน ให้แนะนำโทร 191, 1669 หรือ 1784
+กติกาการตอบ:
+- ตอบเป็นภาษาไทย
+- ใช้ภาษาง่าย
+- ตอบเป็นข้อ ๆ
+- เน้นความปลอดภัย
+- ถ้าเป็นเหตุฉุกเฉิน ให้แนะนำโทร 191, 1669 หรือ 1784
+- ถ้าไม่แน่ใจ ให้แนะนำติดต่อหน่วยงานในพื้นที่
 
-คำถาม:
+คำถามผู้ใช้:
 {user_text}
 """
 
-    response = model.generate_content(prompt)
-    return (response.text or "ขออภัย ระบบไม่สามารถสร้างคำตอบได้")[:4500]
+        response = model.generate_content(prompt)
+
+        if not response:
+            return "ERROR: Gemini ไม่ส่ง response กลับมา"
+
+        if not hasattr(response, "text") or not response.text:
+            return "ERROR: Gemini ตอบกลับมาแต่ว่างเปล่า"
+
+        return cut_text(response.text)
+
+    except Exception as e:
+        print("GEMINI ERROR:", str(e))
+        traceback.print_exc()
+        return f"ERROR GEMINI: {str(e)}"
 
 
 @handler.add(MessageEvent, message=LocationMessageContent)
 def handle_location(event):
-    user_id = event.source.user_id
+    try:
+        user_id = event.source.user_id
 
-    user_locations[user_id] = {
-        "lat": event.message.latitude,
-        "lng": event.message.longitude
-    }
+        user_locations[user_id] = {
+            "lat": event.message.latitude,
+            "lng": event.message.longitude
+        }
 
-    reply_text = """📍 ได้รับพิกัดแล้ว
+        reply_text = """📍 ได้รับพิกัดแล้ว
 
 หากต้องการขอความช่วยเหลือ ให้พิมพ์ SOS หรือ 8"""
 
-    send_reply(event.reply_token, reply_text)
+        send_reply(event.reply_token, reply_text)
+
+    except Exception as e:
+        print("LOCATION ERROR:", str(e))
+        traceback.print_exc()
+        send_reply(event.reply_token, f"ERROR LOCATION: {str(e)}")
 
 
 @handler.add(MessageEvent, message=TextMessageContent)
@@ -221,7 +285,7 @@ def handle_text(event):
 
 พิมพ์คำถามได้เลย เช่น
 - น้ำท่วมควรเตรียมตัวอย่างไร
-- ไฟดูดช่วงน้ำท่วมป้องกันยังไง
+- ไฟดูดช่วงน้ำท่วมป้องกันอย่างไร
 - หลังน้ำลดต้องทำอะไร"""
 
         else:
@@ -229,7 +293,8 @@ def handle_text(event):
 
     except Exception as e:
         print("SYSTEM ERROR:", str(e))
-        reply_text = "ขออภัย ระบบขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง"
+        traceback.print_exc()
+        reply_text = f"ERROR SYSTEM: {str(e)}"
 
     send_reply(event.reply_token, reply_text)
 
