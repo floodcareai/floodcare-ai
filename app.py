@@ -121,7 +121,7 @@ def menu():
 
 def ask_ai(user_text):
     if not GEMINI_API_KEY:
-        return "ERROR: ยังไม่ได้ตั้งค่า GEMINI_API_KEY ใน Render"
+        return "⚠️ ระบบ AI ยังไม่ได้ตั้งค่า GEMINI_API_KEY กรุณาติดต่อผู้ดูแล"
 
     try:
         model = genai.GenerativeModel(MODEL)
@@ -145,17 +145,22 @@ def ask_ai(user_text):
         response = model.generate_content(prompt)
 
         if not response:
-            return "ขออภัย ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง"
+            return "⚠️ ระบบ AI ขัดข้อง กรุณาลองใหม่อีกครั้ง"
 
         if not hasattr(response, "text") or not response.text:
-           return "ขออภัย ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง"
+            return "⚠️ ระบบ AI ขัดข้อง กรุณาลองใหม่อีกครั้ง"
 
         return cut_text(response.text)
 
     except Exception as e:
         print("GEMINI ERROR:", str(e))
         traceback.print_exc()
-        return "ขออภัย ระบบ AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง"
+        msg = str(e).lower()
+        if "429" in msg:
+            return "🤖 FLOODCARE AI ใช้โควต้าฟรีหมดแล้ว กรุณารอ 24 ชั่วโมงหรือเปลี่ยน API Key"
+        if "timeout" in msg:
+            return "🤖 FLOODCARE AI ใช้เวลาตอบช้า กรุณาลองใหม่อีกครั้งใน 1-2 นาที"
+        return "⚠️ ระบบ AI ขัดข้อง กรุณาลองใหม่อีกครั้ง"
 
 
 @handler.add(MessageEvent, message=LocationMessageContent)
@@ -177,7 +182,7 @@ def handle_location(event):
     except Exception as e:
         print("LOCATION ERROR:", str(e))
         traceback.print_exc()
-        send_reply(event.reply_token, f"ERROR LOCATION: {str(e)}")
+        send_reply(event.reply_token, "⚠️ ระบบ AI ขัดข้อง ขณะประมวลผลพิกัด")
 
 
 @handler.add(MessageEvent, message=TextMessageContent)
@@ -294,7 +299,7 @@ def handle_text(event):
     except Exception as e:
         print("SYSTEM ERROR:", str(e))
         traceback.print_exc()
-        reply_text = f"ERROR SYSTEM: {str(e)}"
+        reply_text = "⚠️ ระบบ AI ขัดข้อง กรุณาลองใหม่อีกครั้ง"
 
     send_reply(event.reply_token, reply_text)
 
