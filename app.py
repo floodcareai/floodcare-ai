@@ -17,10 +17,11 @@ from linebot.v3.messaging import (
 
 app = Flask(__name__)
 
+# Environment Variables
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
-MODEL = os.getenv("MODEL", "gemini-1.5-flash")  # ปรับให้ default เป็น 1.5
+MODEL = os.getenv("MODEL", "gemini-1.5-flash")  # ใช้ default 1.5 Flash
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -30,11 +31,9 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 user_locations = {}
 
-
 @app.route("/")
 def home():
     return "FLOODCARE AI is running"
-
 
 @app.route("/health")
 def health():
@@ -48,7 +47,6 @@ def health():
     if missing:
         return {"status": "error", "missing": missing, "model": MODEL}, 500
     return {"status": "ok", "model": MODEL}
-
 
 @app.route("/callback", methods=["POST"])
 def callback():
@@ -65,11 +63,9 @@ def callback():
         return "Callback error", 500
     return "OK"
 
-
 def cut_text(text, limit=4500):
     text = text or "ขออภัย ระบบไม่สามารถสร้างคำตอบได้"
     return text[:limit]
-
 
 def send_reply(reply_token, text):
     try:
@@ -82,7 +78,6 @@ def send_reply(reply_token, text):
     except Exception as e:
         print("SEND REPLY ERROR:", str(e))
         traceback.print_exc()
-
 
 def menu():
     return """🌊 FLOODCARE AI
@@ -100,7 +95,6 @@ def menu():
 9️⃣ ถาม AI เรื่องน้ำท่วม
 
 พิมพ์: เมนู"""
-
 
 def ask_ai(user_text):
     if not GEMINI_API_KEY:
@@ -125,18 +119,48 @@ def ask_ai(user_text):
 """
         response = model.generate_content(prompt)
         if not response or not getattr(response, "text", None):
-            return "⚠️ ระบบ AI ขัดข้อง กรุณาลองใหม่อีกครั้ง"
+            # ใช้ระบบสำรอง
+            return backup_answer()
         return cut_text(response.text)
     except Exception as e:
         print("GEMINI ERROR:", str(e))
         traceback.print_exc()
         msg = str(e).lower()
-        if "429" in msg:
-            return "🤖 FLOODCARE AI ใช้โควต้าฟรีหมดแล้ว กรุณารอ 24 ชั่วโมงหรือเปลี่ยน API Key"
-        if "timeout" in msg:
-            return "🤖 FLOODCARE AI ใช้เวลาตอบช้า กรุณาลองใหม่อีกครั้งใน 1-2 นาที"
-        return "⚠️ ระบบ AI ขัดข้อง กรุณาลองใหม่อีกครั้ง"
+        if "429" in msg or "quota" in msg:
+            return backup_answer_quota()
+        if "timeout" in msg or "deadline" in msg or "504" in msg:
+            return backup_answer_timeout()
+        return backup_answer()
 
+def backup_answer():
+    return """⚠️ ระบบ AI ขัดข้องชั่วคราว
+
+คำแนะนำเตรียมตัวเบื้องต้น:
+1. ติดตามข่าวจากหน่วยงานราชการ เช่น ปภ.
+2. เตรียมอาหารและน้ำดื่ม
+3. ยกเครื่องใช้ไฟฟ้าขึ้นที่สูง
+4. เตรียมยาและอุปกรณ์จำเป็น
+5. หากฉุกเฉิน โทร 191, 1669 หรือ 1784"""
+
+def backup_answer_quota():
+    return """🤖 FLOODCARE AI ขณะนี้โควต้าฟรีหมด
+
+คำแนะนำเตรียมตัวเบื้องต้น:
+1. ติดตามข่าวจาก ปภ. และหน่วยงานท้องถิ่น
+2. ยกของมีค่าและเครื่องใช้ไฟฟ้าขึ้นที่สูง
+3. เตรียมน้ำดื่ม อาหารแห้ง และยาประจำตัว
+4. เตรียมไฟฉาย power bank และเอกสารสำคัญ
+5. หากฉุกเฉิน โทร 191, 1669 หรือ 1784"""
+
+def backup_answer_timeout():
+    return """🤖 FLOODCARE AI ใช้เวลาตอบช้าในขณะนี้
+
+คำแนะนำเตรียมตัวเบื้องต้น:
+1. อยู่ห่างจากกระแสน้ำเชี่ยวและสายไฟ
+2. ยกปลั๊กไฟและเครื่องใช้ไฟฟ้าขึ้นที่สูง
+3. เตรียมน้ำดื่ม อาหารแห้ง ยา และไฟฉาย
+4. ติดตามประกาศจาก ปภ. เทศบาล หรือ อบต.
+5. หากอยู่ในอันตราย โทร 191, 1669 หรือ 1784"""
 
 @handler.add(MessageEvent, message=LocationMessageContent)
 def handle_location(event):
@@ -151,7 +175,6 @@ def handle_location(event):
         print("LOCATION ERROR:", str(e))
         traceback.print_exc()
         send_reply(event.reply_token, "⚠️ ระบบ AI ขัดข้อง ขณะประมวลผลพิกัด")
-
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text(event):
@@ -241,10 +264,8 @@ def handle_text(event):
     except Exception as e:
         print("SYSTEM ERROR:", str(e))
         traceback.print_exc()
-        reply_text = "⚠️ ระบบ AI ขัดข้อง กรุณาลองใหม่อีกครั้ง"
-
+        reply_text = backup_answer()
     send_reply(event.reply_token, reply_text)
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
